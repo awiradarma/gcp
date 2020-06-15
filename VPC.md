@@ -29,6 +29,8 @@ gcloud compute networks subnets list
 ```
 
 #### Create firewall rules
+
+![firewall-rule.png](firewall-rule.png)
 ```
 gcloud compute firewall-rules create labnet-allow-internal \
 	--network=labnet \

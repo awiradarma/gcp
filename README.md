@@ -2,6 +2,11 @@
 
 ## Basic commands
 
+#### List info about google cloud sdk
+```
+gcloud info
+```
+
 #### List active account names
 ```
 gcloud auth list

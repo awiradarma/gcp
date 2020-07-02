@@ -51,3 +51,23 @@ I      helloWorld  9mfhzyh74gnq  2020-06-14 17:06:01.339  My Cloud Function: Hel
 D      helloWorld  9mfhzyh74gnq  2020-06-14 17:06:01.348  Function execution took 18 ms, finished with status: 'ok'
 student_01_0922a79d29b4@cloudshell:~ (qwiklabs-gcp-01-75649dcc3e60)$
 ```
+
+#### Using vegeta to simulate calls to Cloud Functions
+```
+wget 'https://github.com/tsenart/vegeta/releases/download/v6.3.0/vegeta-v6.3.0-linux-386.tar.gz'
+tar xvzf vegeta-v6.3.0-linux-386.tar.gz
+echo "GET https://us-central1-<YOUR_PROJECT_ID>.cloudfunctions.net/qwiklabsDemo" | ./vegeta attack -duration=300s > results.bin
+```
+
+#### Sample function
+```
+/**
+ *   Cloud Function.
+ *
+ *
+ */
+exports.qwiklabsDemo = function qwiklabsDemo (req, res) {
+  res.send(`Hello ${req.body.name || 'World'}!`);
+  console.log(req.body.name);
+}
+```

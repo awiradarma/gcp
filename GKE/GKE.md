@@ -159,3 +159,189 @@ student-01-d35b916c5179@source-instance:~$ kubectl get nodes --output yaml | gre
     - address: ""
       type: ExternalIP
 ```
+
+## GKE with istio add-on
+
+```
+gcloud beta container clusters create $CLUSTER_NAME \
+    --zone $CLUSTER_ZONE --num-nodes 4 \
+    --machine-type "n1-standard-2" --image-type "COS" \
+    --cluster-version=$CLUSTER_VERSION \
+    --enable-stackdriver-kubernetes \
+    --scopes "gke-default","compute-rw" \
+    --enable-autoscaling --min-nodes 4 --max-nodes 8 \
+    --enable-basic-auth \
+    --addons=Istio --istio-config=auth=MTLS_STRICT
+
+export GCLOUD_PROJECT=$(gcloud config get-value project)
+
+gcloud container clusters get-credentials $CLUSTER_NAME \
+    --zone $CLUSTER_ZONE --project $GCLOUD_PROJECT
+
+kubectl create clusterrolebinding cluster-admin-binding \
+    --clusterrole=cluster-admin \
+    --user=$(gcloud config get-value core/account)
+
+student_04_764b0cc6ef62@cloudshell:~ (qwiklabs-gcp-04-a5da6be4bdc1)$ gcloud container clusters list
+NAME     LOCATION       MASTER_VERSION  MASTER_IP       MACHINE_TYPE   NODE_VERSION   NUM_NODES  STATUS
+central  us-central1-b  1.16.10-gke.8   35.232.159.127  n1-standard-2  1.16.10-gke.8  4          RUNNING
+student_04_764b0cc6ef62@cloudshell:~ (qwiklabs-gcp-04-a5da6be4bdc1)$
+
+export LAB_DIR=$HOME/bookinfo-lab
+export ISTIO_VERSION=1.4.6
+
+mkdir $LAB_DIR
+cd $LAB_DIR
+
+curl -L https://git.io/getLatestIstio | ISTIO_VERSION=$ISTIO_VERSION sh -
+
+cd ./istio-*
+
+export PATH=$PWD/bin:$PATH
+
+istioctl version
+```
+
+## Other sample config
+```
+student_04_764b0cc6ef62@cloudshell:~/bookinfo-lab/istio-1.4.6 (qwiklabs-gcp-04-a5da6be4bdc1)$ cat world.yml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: world-v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: world
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: world
+        version: v1
+    spec:
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: service
+        image: buoyantio/helloworld:0.1.4
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        command:
+        - "/bin/sh"
+        - "-c"
+        - "helloworld -addr=:7778 -text=world "
+        ports:
+        - name: service
+          containerPort: 7778
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: world-v1
+spec:
+  selector:
+    app: world
+    version: v1
+  ports:
+  - name: http
+    port: 80
+    targetPort: 7778
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: world-v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: world
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: world
+        version: v2
+    spec:
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: service
+        image: buoyantio/helloworld:0.1.4
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        command:
+
+kubectl apply -f <(istioctl kube-inject -f samples/bookinfo/platform/kube/bookinfo.yaml)
+student_04_764b0cc6ef62@cloudshell:~/bookinfo-lab/istio-1.4.6 (qwiklabs-gcp-04-a5da6be4bdc1)$ cat world-gateway.yml
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: world-gateway
+spec:
+  selector:
+    istio: ingressgateway # use istio default controller
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "*.world.34.69.149.0.nip.io"
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: world
+spec:
+  hosts:
+  - "*.world.34.69.149.0.nip.io"
+  gateways:
+  - world-gateway
+  http:
+  - route:
+    - destination:
+        host: world-v1
+        port:
+          number: 80
+        - "/bin/sh"
+        - "-c"
+        - "helloworld -addr=:7778 -text=earth "
+        ports:
+        - name: service
+          containerPort: 7778
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: world-v2
+spec:
+  selector:
+    app: world
+    version: v2
+  ports:
+  - name: http
+    port: 80
+    targetPort: 7778
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: world
+spec:
+  selector:
+    app: world
+  ports:
+  - name: http
+    port: 80
+    targetPort: 7778
+---
+```
+

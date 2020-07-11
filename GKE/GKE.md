@@ -345,3 +345,301 @@ spec:
 ---
 ```
 
+
+#### Setting up default account to use by gcloud
+```
+gcloud auth application-default login
+```
+
+## Unprivileged service accounts
+All Kubernetes Engine nodes are assigned the default Compute Engine service account. This service account is fairly high privilege and has access to many GCP services. Because of the way the Google Cloud SDK is setup, software that you write will use the credentials assigned to the compute engine instance on which it is running. Since you don't want all of your containers to have the privileges that the default Compute Engine service account has, you need to make a least-privilege service account for your Kubernetes Engine nodes and then create more specific (but still least-privilege) service accounts for your containers.
+
+The only two ways to get service account credentials are through:
+
+- Your host instance (which you don't want)
+- A credentials file
+
+## Cloud SQL Proxy
+The Cloud SQL Proxy allows you to offload the burden of creating and maintaining a connection to your Cloud SQL instance to the Cloud SQL Proxy process. Doing this allows your application to be unaware of the connection details and simplifies your secret management. The Cloud SQL Proxy comes pre-packaged by Google as a Docker container that you can run alongside your application container in the same Kubernetes Engine pod.
+
+https://gcr.io/cloudsql-docker/gce-proxy:1.11
+
+The application doesn't have to know anything about how to connect to Cloud SQL, nor does it have to have any exposure to its API. The Cloud SQL Proxy process takes care of that for the application. It's important to note that the Cloud SQL Proxy container is running as a 'sidecar' container in the pod.
+
+
+## Binary Authorization
+
+Binary Authorization is a GCP managed service that works closely with GKE to enforce deploy-time security controls to ensure that only trusted container images are deployed. With Binary Authorization you can whitelist container registries, require images to be signed by trusted authorities, and centrally enforce those policies. By enforcing this policy, you can gain tighter control over your container environment by ensuring only approved and/or verified images are integrated into the build-and-release process.
+
+The Binary Authorization and Container Analysis APIs are based upon the open-source projects Grafeas and Kritis.
+
+Grafeas defines an API spec for managing metadata about software resources, such as container images, Virtual Machine (VM) images, JAR files, and scripts. You can use Grafeas to define and aggregate information about your project’s components.
+
+Kritis defines an API for ensuring a deployment is prevented unless the artifact (container image) is conformant to central policy and optionally has the necessary attestations present.
+
+## Application Privileges
+
+When configuring security, applications should be granted the smallest set of privileges that still allows them to operate correctly. When applications have more privileges than they need, they are more dangerous when compromised. In a Kubernetes cluster, these privileges can be grouped into the following broad levels:
+
+- Host access: describes what permissions an application has on it's host node, outside of its container. This is controlled via Pod and Container security contexts, as well as app armor profiles.
+- Network access: describes what other resources or workloads an application can access via the network. This is controlled with NetworkPolicies.
+- Kubernetes API access: describes which API calls an application is allowed to make against. API access is controlled using the Role Based Access Control (RBAC) model via Role and RoleBinding definitions.
+
+
+## Hardening
+
+#### Obtain GCE instance metadata
+
+```
+curl -s http://metadata.google.internal/computeMetadata/v1beta1/instance/name
+
+curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/name
+
+curl -s http://metadata.google.internal/computeMetadata/v1beta1/instance/attributes/
+
+curl -s http://metadata.google.internal/computeMetadata/v1beta1/instance/attributes/kube-env
+```
+
+There exists a high likelihood for compromise and exfiltration of sensitive kubelet bootstrapping credentials via the Compute Metadata endpoint. With the kubelet credentials, it is possible to leverage them in certain circumstances to escalate privileges to that of cluster-admin and therefore have full control of the GKE Cluster including all data, applications, and access to the underlying nodes.
+
+By default, GCP projects with the Compute API enabled have a default service account in the format of NNNNNNNNNN-compute@developer.gserviceaccount.com in the project and the Editor role attached to it. Also by default, GKE clusters created without specifying a service account will utilize the default Compute service account and attach it to all worker nodes.
+
+```
+root@gcloud:/# curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/scopes
+https://www.googleapis.com/auth/devstorage.read_only
+https://www.googleapis.com/auth/logging.write
+https://www.googleapis.com/auth/monitoring
+https://www.googleapis.com/auth/service.management.readonly
+https://www.googleapis.com/auth/servicecontrol
+https://www.googleapis.com/auth/trace.append
+```
+
+The combination of authentication scopes and the permissions of the service account dictates what applications on this node can access. The above list is the minimum scopes needed for most GKE clusters, but some use cases require increased scopes.
+
+If the authentication scope were to be configured during cluster creation to include https://www.googleapis.com/auth/cloud-platform, this would allow any GCP API to be considered "in scope", and only the IAM permissions assigned to the service account would determine what can be accessed. 
+
+If the default service account is in use and the default IAM Role of Editor was not modified, this effectively means that any pod on this node pool has Editor permissions to the GCP project where the GKE cluster is deployed. As the Editor IAM Role has a wide range of read/write permissions to interact with resources in the project such as Compute instances, GCS buckets, GCR registries, and more, this is most likely not desired.
+
+## Deploy a pod that mounts the host filesystem
+
+One of the simplest paths for "escaping" to the underlying host is by mounting the host's filesystem into the pod's filesystem using standard Kubernetes volumes and volumeMounts in a Pod specification.
+
+```
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hostpath
+spec:
+  containers:
+  - name: hostpath
+    image: google/cloud-sdk:latest
+    command: ["/bin/bash"]
+    args: ["-c", "tail -f /dev/null"]
+    volumeMounts:
+    - mountPath: /rootfs
+      name: rootfs
+  volumes:
+  - name: rootfs
+    hostPath:
+      path: /
+EOF
+pod/hostpath created
+student_02_7dbd9427a5b8@cloudshell:~ (qwiklabs-gcp-02-6368d7ae6818)$ kubectl exec -it hostpath -- bash
+root@hostpath:/# chroot /rootfs /bin/bash
+hostpath / #
+```
+
+With those simple commands, the pod is now effectively a root shell on the node. You are now able to do the following:
+
+run the standard docker command with full permissions
+
+docker ps
+
+list docker images
+
+docker images
+
+docker run a privileged container of your choosing
+
+docker run --privileged <imagename>:<imageversion>
+
+examine the Kubernetes secrets mounted
+
+mount | grep volumes | awk '{print $3}' | xargs ls
+
+exec into any running container (even into another pod in another namespace)
+
+docker exec -it <docker container ID> sh
+
+Nearly every operation that the root user can perform is available to this pod shell. This includes persistence mechanisms like adding SSH users/keys, running privileged docker containers on the host outside the view of Kubernetes, and much more.
+
+## Available controls
+
+- Disabling the Legacy GCE Metadata API Endpoint - By specifying a custom metadata key and value, the v1beta1 metadata endpoint will no longer be available from the instance.
+
+- Enable Metadata Concealment - Passing an additional configuration during cluster and/or node pool creation, a lightweight proxy will be installed on each node that proxies all requests to the Metadata API and prevents access to sensitive endpoints.
+
+- Enable and configure PodSecurityPolicy - Configuring this option on a GKE cluster will add the PodSecurityPolicy Admission Controller which can be used to restrict the use of insecure settings during Pod creation. In this demo's case, preventing containers from running as the root user and having the ability to mount the underlying host filesystem.
+
+
+```
+gcloud beta container node-pools create second-pool --cluster=simplecluster --zone=$MY_ZONE --num-nodes=1 --metadata=disable-legacy-endpoints=true --workload-metadata-from-node=SECURE
+```
+
+Note: In GKE versions 1.12 and newer, the --metadata=disable-legacy-endpoints=true setting will automatically be enabled. 
+
+```
+kubectl run -it --rm gcloud --image=google/cloud-sdk:latest --restart=Never --overrides='{ "apiVersion": "v1", "spec": { "securityContext": { "runAsUser": 65534, "fsGroup": 65534 }, "nodeSelector": { "cloud.google.com/gke-nodepool": "second-pool" } } }' -- bash
+
+These will fail:
+curl -s http://metadata.google.internal/computeMetadata/v1beta1/instance/name
+
+curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/kube-env
+
+Non-sensitive data will still be available
+curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/name
+```
+
+## Pod Security Policy
+
+```
+kubectl create clusterrolebinding clusteradmin --clusterrole=cluster-admin --user="$(gcloud config list account --format 'value(core.account)')"
+
+cat <<EOF | kubectl apply -f -
+---
+apiVersion: extensions/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: restrictive-psp
+  annotations:
+    seccomp.security.alpha.kubernetes.io/allowedProfileNames: 'docker/default'
+    apparmor.security.beta.kubernetes.io/allowedProfileNames: 'runtime/default'
+    seccomp.security.alpha.kubernetes.io/defaultProfileName:  'docker/default'
+    apparmor.security.beta.kubernetes.io/defaultProfileName:  'runtime/default'
+spec:
+  privileged: false
+  # Required to prevent escalations to root.
+  allowPrivilegeEscalation: false
+  # This is redundant with non-root + disallow privilege escalation,
+  # but we can provide it for defense in depth.
+  requiredDropCapabilities:
+    - ALL
+  # Allow core volume types.
+  volumes:
+    - 'configMap'
+    - 'emptyDir'
+    - 'projected'
+    - 'secret'
+    - 'downwardAPI'
+    # Assume that persistentVolumes set up by the cluster admin are safe to use.
+    - 'persistentVolumeClaim'
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  runAsUser:
+    # Require the container to run without root privileges.
+    rule: 'MustRunAsNonRoot'
+  seLinux:
+    # This policy assumes the nodes are using AppArmor rather than SELinux.
+    rule: 'RunAsAny'
+  supplementalGroups:
+    rule: 'MustRunAs'
+    ranges:
+      # Forbid adding the root group.
+      - min: 1
+        max: 65535
+  fsGroup:
+    rule: 'MustRunAs'
+    ranges:
+      # Forbid adding the root group.
+      - min: 1
+        max: 65535
+EOF
+
+cat <<EOF | kubectl apply -f -
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: restrictive-psp
+rules:
+- apiGroups:
+  - extensions
+  resources:
+  - podsecuritypolicies
+  resourceNames:
+  - restrictive-psp
+  verbs:
+  - use
+EOF
+
+cat <<EOF | kubectl apply -f -
+---
+# All service accounts in kube-system
+# can 'use' the 'permissive-psp' PSP
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: restrictive-psp
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: restrictive-psp
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: system:authenticated
+EOF
+
+Note: In a real environment, consider replacing the system:authenticated user in the RoleBinding with the specific user or service accounts that you want to have the ability to create pods in the default namespace.
+
+Next, enable the PodSecurityPolicy Admission Controller:
+
+gcloud beta container clusters update simplecluster --zone $MY_ZONE --enable-pod-security-policy
+
+```
+## Validate Pod Security Policy
+```
+gcloud iam service-accounts create demo-developer
+MYPROJECT=$(gcloud config list --format 'value(core.project)')
+gcloud iam service-accounts keys create key.json --iam-account "demo-developer@${MYPROJECT}.iam.gserviceaccount.com"
+gcloud auth activate-service-account --key-file=key.json
+gcloud container clusters get-credentials simplecluster --zone $MY_ZONE
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hostpath
+spec:
+  containers:
+  - name: hostpath
+    image: google/cloud-sdk:latest
+    command: ["/bin/bash"]
+    args: ["-c", "tail -f /dev/null"]
+    volumeMounts:
+    - mountPath: /rootfs
+      name: rootfs
+  volumes:
+  - name: rootfs
+    hostPath:
+      path: /
+EOF
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hostpath
+spec:
+  securityContext:
+    runAsUser: 1000
+    fsGroup: 2000
+  containers:
+  - name: hostpath
+    image: google/cloud-sdk:latest
+    command: ["/bin/bash"]
+    args: ["-c", "tail -f /dev/null"]
+EOF
+kubectl get pod hostpath -o=jsonpath="{ .metadata.annotations.kubernetes\.io/psp }"
+```

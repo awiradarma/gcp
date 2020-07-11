@@ -40,3 +40,16 @@ gke_username = "admin"
 gke_password = "$(openssl rand -base64 16)"
 EOF
 ```
+
+
+#### HTTP Load Balancer
+https://github.com/GoogleCloudPlatform/terraform-google-lb-http.git
+
+
+#### TCP Load Balancer
+https://github.com/GoogleCloudPlatform/terraform-google-lb
+git checkout 028dd3dc09ae1bf47e107ab435310c0a57b1674c
+
+
+#### Custom provider
+https://www.qwiklabs.com/focuses/1204?parent=catalog 

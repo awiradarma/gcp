@@ -1,3 +1,30 @@
+# resource "google_compute_firewall" "default" {
+#   name    = "test-firewall"
+#   network = google_compute_network.default.name
+# 
+#   allow {
+#     protocol = "tcp"
+#     ports    = ["80"]
+#   }
+# 
+#   target_tags = ["network-lb-tag"]
+# }
+# 
+# resource "google_compute_network" "default" {
+#   name = "test-network"
+# }
+
+#resource "google_compute_address" "ip_address" {
+#  name = "my-address"
+#}
+
+resource "google_compute_forwarding_rule" "default" {
+  name       = "website-forwarding-rule"
+  target     = google_compute_target_pool.webserver_pool.id
+#  ip_address    = google_compute_address.ip_address.id
+  port_range = "80"
+}
+
 resource "google_compute_target_pool" "webserver_pool" {
   name = "instance-pool"
 

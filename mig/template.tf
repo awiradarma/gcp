@@ -25,10 +25,12 @@ resource "google_compute_instance_template" "webserver_template" {
 
   network_interface {
     network = "default"
-    access_config  {
-      nat_ip = null
-      network_tier = "PREMIUM"
-    }
+# // no need to provide an external IP address since these VMs would be behind
+# // a load balancer
+#    access_config  {
+#      nat_ip = null
+#      network_tier = "PREMIUM"
+#    }
   }
 
 

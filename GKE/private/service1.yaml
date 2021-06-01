@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: greeting-go-clusterip
+  annotations:
+    cloud.google.com/neg: '{"ingress": true}'
+spec:
+  type: ClusterIP 
+  ports:
+    - port: 80
+      targetPort: 8080
+  selector:
+    name: greeting-go

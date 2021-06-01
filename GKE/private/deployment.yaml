@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: greeting-go
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      name: greeting-go
+  template:
+    metadata:
+      labels:
+        name: greeting-go
+    spec:
+      containers:
+        - name: app
+          image: awiradarma/greeting:go
+          ports:
+            - containerPort: 8080

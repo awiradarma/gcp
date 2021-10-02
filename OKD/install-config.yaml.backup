@@ -1,0 +1,52 @@
+apiVersion: v1
+baseDomain: okd.kebulaman.de
+compute:
+- architecture: amd64
+  hyperthreading: Enabled
+  name: worker
+  platform: 
+    gcp:
+      type: n1-standard-2
+      zones:
+      - us-central1-a
+      - us-central1-c
+      - us-central1-f
+      osDisk:
+        diskType: pd-ssd
+        diskSizeGB: 64
+  replicas: 2
+controlPlane:
+  architecture: amd64
+  hyperthreading: Enabled
+  name: master
+  platform: 
+    gcp:
+      type: n1-standard-4
+      zones:
+      - us-central1-a
+      - us-central1-c
+      - us-central1-f
+      osDisk:
+        diskType: pd-ssd
+        diskSizeGB: 128
+  replicas: 3
+metadata:
+  creationTimestamp: null
+  name: okdcentral1
+networking:
+  clusterNetwork:
+  - cidr: 10.128.0.0/14
+    hostPrefix: 23
+  machineNetwork:
+  - cidr: 10.0.0.0/16
+  networkType: OVNKubernetes
+  serviceNetwork:
+  - 172.30.0.0/16
+platform:
+  gcp:
+    projectID: my-okd-10012021
+    region: us-central1
+publish: External
+pullSecret: '{"auths":{"fake":{"auth":"aWQ6cGFzcwo="}}}'
+sshKey: |
+  ssh-ed25519 AAAAxxxxxxxxxxxxxxxx andre@t460

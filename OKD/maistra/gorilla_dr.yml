@@ -1,0 +1,13 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata: 
+  name: gorilla-destination-rule
+spec:
+  host: gorilla
+  subsets:
+  - name: prod
+    labels:
+      version: v1
+  - name: staging
+    labels:
+      version: v2
